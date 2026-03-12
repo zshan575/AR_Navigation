@@ -1,0 +1,1 @@
+C:\Project\ARIndoorNavigation-Unity6\Library\Bee\Android\Prj\IL2CPP\Gradle\unityLibrary\build\intermediates\cxx\RelWithDebInfo\4n3j1w2d\obj\arm64-v8a
