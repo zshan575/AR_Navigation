@@ -29,6 +29,7 @@ namespace ARNavigation.ImageTracking
     [RequireComponent(typeof(ARTrackedImageManager))]
     public class ARImageTracker : MonoBehaviour
     {
+        public static ARImageTracker Instance { get; private set; }
         // ── Inspector ─────────────────────────────────────────────────────────────
         [Header("Marker Overlay (optional)")]
         [Tooltip("If assigned, this prefab is instantiated on top of the recognised " +
@@ -59,12 +60,18 @@ namespace ARNavigation.ImageTracking
 
         void OnEnable()
         {
-            _imageManager.trackedImagesChanged += OnTrackedImagesChanged;
+          _imageManager.trackedImagesChanged += OnTrackedImagesChanged;
 
             if (RouteManager.Instance != null)
                 RouteManager.Instance.OnStateChanged += OnNavStateChanged;
         }
+        public void OnStartButton()
+        {
+//             _imageManager.trackedImagesChanged += OnTrackedImagesChanged;
 
+        //    if (RouteManager.Instance != null)
+          //      RouteManager.Instance.OnStateChanged += OnNavStateChanged;
+        }
         void OnDisable()
         {
             _imageManager.trackedImagesChanged -= OnTrackedImagesChanged;

@@ -1,574 +1,416 @@
+using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using ARNavigation.Core;
 using ARNavigation.Data;
+using ARNavigation.ImageTracking;
 
 namespace ARNavigation.Navigation
 {
-    /// <summary>
-    /// AR PATH LINE RENDERER
-    /// ======================
-    /// Full navigation flow handled in ONE script:
-    ///
-    ///   Scan image  →  pin locks X metres ahead  →  line draws from feet to pin
-    ///   Walk to pin →  ArrivedPanel shows ("You Have Arrived!")
-    ///   Tap "Next Location"  →  pin+line clear  →  ScanPanel shows
-    ///   Scan next image  →  repeat
-    ///
-    /// SETUP:
-    ///   1. Create Empty GO "PathLine" at (0,0,0) → Add this script
-    ///   2. Drag AR Camera into AR Camera slot
-    ///   3. Create Material: Shader=Unlit/Color  Color=R0 G220 B200 A255 → Path Material
-    ///   4. Wire the UI panels (HomePanel, ScanPanel, NavigatePanel, ArrivedPanel, CompletePanel)
-    ///   5. Tick ForceShowLine to test. Adjust GroundOffset until line sits on floor. Untick.
-    /// </summary>
     [RequireComponent(typeof(LineRenderer))]
     public class ARPathLineRenderer : MonoBehaviour
     {
-        // ═══════════════════════════════════════════════════════
-        //  REQUIRED
-        // ═══════════════════════════════════════════════════════
-        [Header("── REQUIRED ───────────────────────────")]
-        [Tooltip("Drag AR Camera (child of XROrigin) here.")]
+        [Header("AR Camera")]
         public Camera ARCamera;
-
-        [Tooltip("Unlit/Color material. Color R:0 G:220 B:200 A:255\nLeave empty → magenta fallback.")]
         public Material PathMaterial;
 
-        // ═══════════════════════════════════════════════════════
-        //  UI PANELS  ← wire all of these in Inspector
-        // ═══════════════════════════════════════════════════════
-        [Header("── UI PANELS (wire all in Inspector) ──")]
-        [Tooltip("First screen. Shown on launch.")]
+        [Header("UI Panels")]
         public GameObject HomePanel;
-
-        [Tooltip("Camera scan screen. Shown while waiting for image scan.")]
         public GameObject ScanPanel;
-
-        [Tooltip("Shown while navigating (line + pin active).")]
         public GameObject NavigatePanel;
-
-        [Tooltip("Overlaid on NavigatePanel when player reaches destination.")]
         public GameObject ArrivedPanel;
-
-        [Tooltip("Shown after all stops completed.")]
         public GameObject CompletePanel;
 
-        // ═══════════════════════════════════════════════════════
-        //  HOME PANEL
-        // ═══════════════════════════════════════════════════════
-        [Header("── HOME PANEL ─────────────────────────")]
-        [Tooltip("'Start' button on home screen.")]
-        public Button StartButton;
-
-        [Tooltip("App title text on home screen.")]
+        [Header("Home Panel")]
+        public Button          StartButton;
         public TextMeshProUGUI AppTitleText;
-
-        [Tooltip("Route description text. e.g. 'Office Tour — 3 stops'")]
         public TextMeshProUGUI RouteDescriptionText;
 
-        // ═══════════════════════════════════════════════════════
-        //  SCAN PANEL
-        // ═══════════════════════════════════════════════════════
-        [Header("── SCAN PANEL ─────────────────────────")]
-        [Tooltip("e.g. 'STEP 1 OF 3'")]
+        [Header("Scan Panel")]
         public TextMeshProUGUI ScanStepText;
-
-        [Tooltip("e.g. 'Point camera at the marker'")]
         public TextMeshProUGUI ScanInstructionText;
-
-        [Tooltip("e.g. 'Looking for: Reception'")]
         public TextMeshProUGUI ScanTargetText;
 
-        // ═══════════════════════════════════════════════════════
-        //  NAVIGATE PANEL
-        // ═══════════════════════════════════════════════════════
-        [Header("── NAVIGATE PANEL ─────────────────────")]
-        [Tooltip("Destination name. e.g. 'Conference Room A'")]
+        [Header("Navigate Panel")]
         public TextMeshProUGUI NavDestinationText;
-
-        [Tooltip("Step counter. e.g. 'Stop 2 of 3'")]
         public TextMeshProUGUI NavStepText;
-
-        [Tooltip("Distance remaining. Updated live.")]
         public TextMeshProUGUI NavDistanceText;
-
-        [Tooltip("Walking instruction. e.g. 'Turn left at the stairs'")]
         public TextMeshProUGUI NavInstructionText;
 
-        // ═══════════════════════════════════════════════════════
-        //  ARRIVED PANEL
-        // ═══════════════════════════════════════════════════════
-        [Header("── ARRIVED PANEL ──────────────────────")]
-        [Tooltip("'You Have Arrived!' title text.")]
+        [Header("Arrived Panel")]
         public TextMeshProUGUI ArrivedTitleText;
-
-        [Tooltip("Stop name shown on arrived screen.")]
         public TextMeshProUGUI ArrivedStopNameText;
-
-        [Tooltip("'Next Location' button. Clears line+pin and opens scan screen.")]
-        public Button NextLocationButton;
-
-        [Tooltip("Text on the next button. Auto-changes to 'Finish' on last stop.")]
+        public Button          NextLocationButton;
         public TextMeshProUGUI NextLocationButtonText;
 
-        // ═══════════════════════════════════════════════════════
-        //  COMPLETE PANEL
-        // ═══════════════════════════════════════════════════════
-        [Header("── COMPLETE PANEL ─────────────────────")]
+        [Header("Complete Panel")]
         public TextMeshProUGUI CompleteTitleText;
         public TextMeshProUGUI CompleteSubText;
         public Button          RestartButton;
 
-        // ═══════════════════════════════════════════════════════
-        //  LINE SETTINGS
-        // ═══════════════════════════════════════════════════════
-        [Header("── LINE ───────────────────────────────")]
-        [Range(4, 40)]
-        public int   PointCount   = 20;
+        [Header("Line")]
+        [Range(4,40)]  public int   PointCount   = 20;
+        [Range(0f,1f)] public float GroundOffset = 0.05f;
+        public float StartWidth = 0.10f;
+        public float EndWidth   = 0.03f;
+        public Color LineColor  = new Color(0f, 0.86f, 0.78f, 0.9f);
+        [Range(0f,3f)] public float ScrollSpeed = 0.7f;
 
-        [Tooltip("Raise if line clips into floor. Start: 0.05")]
-        [Range(0f, 0.5f)]
-        public float GroundOffset = 0.05f;
-
-        public float StartWidth   = 0.10f;
-        public float EndWidth     = 0.03f;
-
-        [Tooltip("Teal: R:0 G:220 B:200 A:230")]
-        public Color LineColor    = new Color(0f, 0.86f, 0.78f, 0.9f);
-
-        [Range(0f, 3f)]
-        public float ScrollSpeed  = 0.7f;
-
-        [Header("── LINE ANIMATIONS ────────────────────")]
-        public bool  GlowBreathEnabled = true;
-        [Range(0f,1f)] public float GlowBreathMin   = 0.35f;
-        [Range(0f,1f)] public float GlowBreathMax   = 1.0f;
-        public float GlowBreathSpeed   = 1.6f;
-        public bool  WidthPulseEnabled = true;
-        [Range(0f,0.05f)] public float WidthPulseAmount = 0.025f;
-        public bool  ColorShiftEnabled = true;
-        public Color LineColorHighlight = new Color(0.2f, 0.6f, 1f, 0.9f);
-
-        // ═══════════════════════════════════════════════════════
-        //  PIN SETTINGS
-        // ═══════════════════════════════════════════════════════
-        [Header("── DESTINATION PIN ──────────────────────")]
+        [Header("Pin")]
+        public GameObject PinObject;
         public Color PinColor  = new Color(0f, 0.95f, 0.8f, 1f);
-
-        [Tooltip("How high pin floats above ground. 0 = floor level.")]
         public float PinHeight = 0f;
 
-        // ═══════════════════════════════════════════════════════
-        //  ARRIVAL
-        // ═══════════════════════════════════════════════════════
-        [Header("── ARRIVAL ─────────────────────────────")]
-        [Tooltip("How close (metres) player must be to trigger Arrived. Default: 1.5")]
-        [Range(0.3f, 5f)]
-        public float ArrivalRadius = 1.5f;
+        [Header("Arrival")]
+        [Range(0.3f,5f)] public float ArrivalRadius = 1.5f;
 
-        // ═══════════════════════════════════════════════════════
-        //  TEST / DEBUG
-        // ═══════════════════════════════════════════════════════
-        [Header("── TEST / DEBUG ────────────────────────")]
-        [Tooltip("Show line immediately without scanning. Use to set up GroundOffset.")]
-        public bool ForceShowLine = false;
+        [Header("Delay after scan (seconds)")]
+        [Range(0f,5f)] public float NavigationStartDelay = 1f;
 
-        [Tooltip("Log status to Console every second.")]
+        [Header("Debug")]
+        public bool ForceShowLine  = false;
         public bool VerboseLogging = true;
 
-        // ═══════════════════════════════════════════════════════
-        //  PRIVATE STATE
-        // ═══════════════════════════════════════════════════════
+        // ─── private ──────────────────────────────────────────
         LineRenderer _lr;
         Material     _mat;
+        RouteManager _rm;
+        Coroutine    _delayCo;
 
         Vector3 _destWorld;
         bool    _destLocked;
-        bool    _active;
+        bool    _lineActive;
         bool    _arrivedShown;
 
-        // Public access for ARSessionStabilityManager
+        float _alpha, _scroll, _bobTimer, _ringTimer, _logTimer;
+
+        GameObject _pinRoot, _pinRing;
+
         public Vector3 DestinationWorld  => _destWorld;
         public bool    DestinationLocked => _destLocked;
 
-        float _alpha;
-        float _scroll;
-        float _bobTimer;
-        float _ringTimer;
-        float _logTimer;
-        float _glowTimer;
-        float _baseStartWidth;
-        float _baseEndWidth;
-
-        GameObject _pinRoot;
-        GameObject _pinRing;
-
-        RouteManager _rm;
-
-        // ═══════════════════════════════════════════════════════
-        //  LIFECYCLE
-        // ═══════════════════════════════════════════════════════
+        // ─── lifecycle ────────────────────────────────────────
         void Awake()
         {
             _lr = GetComponent<LineRenderer>();
             BuildMaterial();
-            SetupLineRenderer();
+            SetupLR();
         }
 
         void Start()
         {
             _rm = RouteManager.Instance;
 
-            // Wire buttons
             if (StartButton        != null) StartButton.onClick.AddListener(OnStartPressed);
             if (NextLocationButton != null) NextLocationButton.onClick.AddListener(OnNextLocationPressed);
             if (RestartButton      != null) RestartButton.onClick.AddListener(OnRestartPressed);
 
-            // Subscribe to route state
-            if (_rm != null) _rm.OnStateChanged += OnNavState;
+            if (_rm != null) _rm.OnStateChanged += OnState;
 
             // Start on home screen
-            ShowHome();
+            ShowScreen(Screen.Home);
         }
 
         void OnDestroy()
         {
-            if (_rm != null) _rm.OnStateChanged -= OnNavState;
-            if (_mat) Destroy(_mat);
+            if (_rm  != null) _rm.OnStateChanged -= OnState;
+            if (_mat != null) Destroy(_mat);
         }
 
-        // ═══════════════════════════════════════════════════════
-        //  UPDATE
-        // ═══════════════════════════════════════════════════════
+        // ─── update ───────────────────────────────────────────
         void Update()
         {
             if (ARCamera == null) { ARCamera = Camera.main; if (ARCamera == null) return; }
 
-            // Test mode: force pin 5m ahead
-            if (ForceShowLine && !_destLocked)
-                LockDestination(5f);
+            if (ForceShowLine && !_destLocked) LockDest(5f);
 
-            bool show = _active || ForceShowLine;
-            _alpha = Mathf.MoveTowards(_alpha, show ? 1f : 0f, Time.deltaTime / 0.35f);
+            _alpha = Mathf.MoveTowards(_alpha,
+                (_lineActive || ForceShowLine) ? 1f : 0f,
+                Time.deltaTime / 0.35f);
 
             if (_alpha < 0.01f)
             {
                 _lr.enabled = false;
-                Show(_pinRoot, false);
+                if (_pinRoot != null) _pinRoot.SetActive(false);
                 return;
             }
 
             _lr.enabled = true;
-            Show(_pinRoot, true);
+            if (_pinRoot != null) _pinRoot.SetActive(true);
 
             if (_destLocked)
             {
                 DrawLine();
                 CheckArrival();
-                UpdateDistanceText();
+                UpdateDist();
             }
 
-            // Line animations
-            _scroll = (_scroll + Time.deltaTime * ScrollSpeed) % 1f;
-            _mat.mainTextureOffset = new Vector2(-_scroll, 0f);
-            ApplyAlpha(_alpha);
-            AnimateLineEffects();
+            AnimateLine();
             AnimatePin();
 
-            // Verbose log
             if (VerboseLogging)
             {
                 _logTimer -= Time.deltaTime;
                 if (_logTimer <= 0f)
                 {
                     _logTimer = 1f;
-                    float d = _destLocked ? FlatDist(ARCamera.transform.position, _destWorld) : -1f;
-                    Debug.Log($"[PathLine] active={_active} locked={_destLocked} dist={d:F1}m alpha={_alpha:F2}");
+                    Debug.Log($"[PathLine] lineActive={_lineActive} locked={_destLocked} alpha={_alpha:F2}");
                 }
             }
         }
 
-        // ═══════════════════════════════════════════════════════
-        //  SCREEN FLOW
-        // ═══════════════════════════════════════════════════════
-        void ShowHome()
+        // ─── screen enum ──────────────────────────────────────
+        enum Screen { Home, Scan, Navigate, Arrived, Complete }
+
+        // THE ONE function that controls panels
+        // Every panel is explicitly set — no ambiguity
+        void ShowScreen(Screen s)
         {
-            ShowOnly(HomePanel);
-            _active     = false;
-            _destLocked = false;
-            DestroyPin();
+            if (HomePanel     != null) HomePanel.SetActive(s == Screen.Home);
+            if (ScanPanel     != null) ScanPanel.SetActive(s == Screen.Scan);
+            if (NavigatePanel != null) NavigatePanel.SetActive(s == Screen.Navigate);
+            if (ArrivedPanel  != null) ArrivedPanel.SetActive(s == Screen.Arrived);
+            if (CompletePanel != null) CompletePanel.SetActive(s == Screen.Complete);
+            Debug.Log($"[PathLine] ShowScreen({s}) → " +
+                      $"Home={s==Screen.Home} Scan={s==Screen.Scan} " +
+                      $"Nav={s==Screen.Navigate||s==Screen.Arrived} " +
+                      $"Arrived={s==Screen.Arrived} Complete={s==Screen.Complete}");
+        }
 
-            if (AppTitleText != null)
-                AppTitleText.text = "AR Navigator";
+        // ─── route state handler ──────────────────────────────
+        void OnState(RouteManager.NavState state, NavigationStop stop)
+        {
+            Debug.Log($"[PathLine] RouteManager → {state}");
 
+            // Cancel any running countdown
+            if (_delayCo != null) { StopCoroutine(_delayCo); _delayCo = null; }
+
+            switch (state)
+            {
+                // Image not yet scanned — show scan screen, clear line+pin
+                case RouteManager.NavState.WaitingForImage:
+                    KillLine();
+                    FillScanUI();
+                    ShowScreen(Screen.Scan);
+                    
+                    break;
+
+                // Image just scanned — start countdown then navigate
+                case RouteManager.NavState.Navigating:
+                     CountdownThenNavigate(stop);
+                    break;
+
+                case RouteManager.NavState.RouteComplete:
+                    KillLine();
+                    FillCompleteUI();
+                    ShowScreen(Screen.Complete);
+                    break;
+
+                case RouteManager.NavState.Idle:
+                    KillLine();
+                    FillHomeUI();
+                    ShowScreen(Screen.Home);
+                    break;
+            }
+        }
+
+        // Countdown on scan panel → then switch to navigate
+        void CountdownThenNavigate(NavigationStop stop)
+        {
+            LockDest(stop?.DistanceMetres > 0 ? stop.DistanceMetres : 5f);
+            _lineActive = true;
+            FillNavigateUI(stop);
+            ShowScreen(Screen.Navigate);  // ← ScanPanel turns OFF here
+            ScanPanel.SetActive(false);
+            NavigatePanel.SetActive(true);
+        }
+
+        // ─── fill UI helpers ──────────────────────────────────
+        void FillHomeUI()
+        {
+            if (AppTitleText         != null) AppTitleText.text = "AR Navigator";
             if (RouteDescriptionText != null && _rm != null)
                 RouteDescriptionText.text = $"{_rm.Route.RouteName}  •  {_rm.TotalSteps} stops";
         }
 
-        void ShowScan()
+        void FillScanUI()
         {
-            ShowOnly(ScanPanel);
-            // Hide line + pin
-            _active     = false;
-            _destLocked = false;
-            DestroyPin();
-
             if (_rm == null) return;
-            int step  = _rm.CurrentStepIndex + 1;
-            int total = _rm.TotalSteps;
-            var stop  = _rm.CurrentStop;
-
-            if (ScanStepText != null)
-                ScanStepText.text = $"STEP {step} OF {total}";
-
-            if (ScanInstructionText != null)
-                ScanInstructionText.text = "Point the camera at\nthe location marker";
-
-            if (ScanTargetText != null && stop != null)
-                ScanTargetText.text = $"Looking for:\n<b>{stop.DisplayName}</b>";
+            int step = _rm.CurrentStepIndex + 1;
+            if (ScanStepText        != null) ScanStepText.text        = $"STEP {step} OF {_rm.TotalSteps}";
+            if (ScanInstructionText != null) ScanInstructionText.text = "Point camera at\nthe location marker";
+            if (ScanTargetText      != null) ScanTargetText.text      = _rm.CurrentStop != null
+                ? $"Looking for:\n<b>{_rm.CurrentStop.DisplayName}</b>" : "";
         }
 
-        void ShowNavigate(NavigationStop stop)
+        void FillNavigateUI(NavigationStop stop)
         {
-            ShowOnly(NavigatePanel);
-            Show(ArrivedPanel, false);   // make sure arrived is hidden
             _arrivedShown = false;
-
             if (stop == null) return;
-            if (NavDestinationText != null)  NavDestinationText.text = stop.DisplayName;
-            if (NavInstructionText != null)  NavInstructionText.text = stop.Instruction;
+            if (NavDestinationText != null) NavDestinationText.text = stop.DisplayName;
+            if (NavInstructionText != null) NavInstructionText.text = stop.Instruction;
             if (NavStepText != null && _rm != null)
                 NavStepText.text = $"Stop {_rm.CurrentStepIndex + 1} of {_rm.TotalSteps}";
         }
 
-        void ShowArrived(NavigationStop stop)
+        void FillArrivedUI(NavigationStop stop)
         {
-            // Keep NavigatePanel visible underneath — just show ArrivedPanel on top
-            Show(NavigatePanel, true);
-            Show(ArrivedPanel,  true);
-
-            if (ArrivedTitleText != null)
-                ArrivedTitleText.text = "You Have Arrived!";
-
-            if (ArrivedStopNameText != null)
-                ArrivedStopNameText.text = stop?.DisplayName ?? "";
-
-            bool isLast = _rm != null && _rm.CurrentStepIndex >= _rm.TotalSteps - 1;
+            if (ArrivedTitleText    != null) ArrivedTitleText.text    = "You Have Arrived!";
+            if (ArrivedStopNameText != null) ArrivedStopNameText.text = stop?.DisplayName ?? "";
+            bool last = _rm != null && _rm.CurrentStepIndex >= _rm.TotalSteps - 1;
             if (NextLocationButtonText != null)
-                NextLocationButtonText.text = isLast ? "Finish Route" : "Next Location";
+                NextLocationButtonText.text = last ? "Finish" : "Next Location";
         }
 
-        void ShowComplete()
+        void FillCompleteUI()
         {
-            ShowOnly(CompletePanel);
-            _active     = false;
-            _destLocked = false;
-            DestroyPin();
-
-            if (CompleteTitleText != null)
-                CompleteTitleText.text = "Route Complete!";
-
-            if (CompleteSubText != null && _rm != null)
-                CompleteSubText.text = $"You visited all {_rm.TotalSteps} locations.\nWell done!";
+            if (CompleteTitleText != null) CompleteTitleText.text = "Route Complete!";
+            if (CompleteSubText   != null && _rm != null)
+                CompleteSubText.text = $"You visited all {_rm.TotalSteps} locations!";
         }
 
-        // ═══════════════════════════════════════════════════════
-        //  BUTTON HANDLERS
-        // ═══════════════════════════════════════════════════════
+        // ─── buttons ──────────────────────────────────────────
         void OnStartPressed()
         {
             Debug.Log("[PathLine] Start pressed");
+            FillHomeUI();
+            ARImageTracker.Instance.OnStartButton();
+            ScanPanel.SetActive(true); 
             _rm?.StartNavigation();
-            // ShowScan() triggered automatically by OnNavState → WaitingForImage
+            // → RouteManager fires WaitingForImage → OnState → ShowScreen(Scan)
         }
 
         void OnNextLocationPressed()
         {
             Debug.Log("[PathLine] Next Location pressed");
-            // Hide arrived panel immediately
-            Show(ArrivedPanel, false);
-            // Tell RouteManager to advance to next stop
+
+            // Kill line and pin IMMEDIATELY
+            KillLine();
+            ArrivedPanel.SetActive(false);
+            // Advance route — this fires OnState
+            // If more stops  → WaitingForImage → ShowScreen(Scan)
+            // If last stop   → RouteComplete   → ShowScreen(Complete)
             _rm?.ConfirmArrival();
-            // OnNavState fires → WaitingForImage → ShowScan()  OR  RouteComplete → ShowComplete()
         }
 
         void OnRestartPressed()
         {
             Debug.Log("[PathLine] Restart pressed");
+            KillLine();
             _rm?.ResetRoute();
-            ShowHome();
+            FillHomeUI();
+            ShowScreen(Screen.Home);
         }
 
-        // ═══════════════════════════════════════════════════════
-        //  ROUTE MANAGER STATE HANDLER
-        // ═══════════════════════════════════════════════════════
-        void OnNavState(RouteManager.NavState state, NavigationStop stop)
-        {
-            Debug.Log($"[PathLine] NavState → {state}");
-            switch (state)
-            {
-                case RouteManager.NavState.WaitingForImage:
-                    ShowScan();
-                    break;
-
-                case RouteManager.NavState.Navigating:
-                    _active = true;
-                    LockDestination(stop?.DistanceMetres > 0 ? stop.DistanceMetres : 5f);
-                    ShowNavigate(stop);
-                    break;
-
-                case RouteManager.NavState.RouteComplete:
-                    ShowComplete();
-                    break;
-
-                case RouteManager.NavState.Idle:
-                    ShowHome();
-                    break;
-            }
-        }
-
-        // ═══════════════════════════════════════════════════════
-        //  DESTINATION LOCK
-        // ═══════════════════════════════════════════════════════
-        void LockDestination(float metres)
-        {
-            Vector3 fwd = ARCamera.transform.forward;
-            fwd.y = 0f;
-            if (fwd.sqrMagnitude < 0.001f) fwd = Vector3.forward;
-            fwd.Normalize();
-
-            float gy   = GroundY();
-            _destWorld = new Vector3(
-                ARCamera.transform.position.x + fwd.x * metres,
-                gy,
-                ARCamera.transform.position.z + fwd.z * metres);
-
-            _destLocked   = true;
-            _arrivedShown = false;
-            _bobTimer     = 0f;
-            _ringTimer    = 0f;
-
-            BuildPin();
-            Debug.Log($"[PathLine] Pin locked {metres}m ahead at {_destWorld}");
-        }
-
-        // ═══════════════════════════════════════════════════════
-        //  DRAW LINE
-        // ═══════════════════════════════════════════════════════
-        void DrawLine()
-        {
-            float gy = GroundY() + GroundOffset;
-            Vector3 start = new Vector3(ARCamera.transform.position.x, gy, ARCamera.transform.position.z);
-            Vector3 end   = new Vector3(_destWorld.x, gy, _destWorld.z);
-
-            for (int i = 0; i < PointCount; i++)
-                _lr.SetPosition(i, Vector3.Lerp(start, end, (float)i / (PointCount - 1)));
-        }
-
-        // ═══════════════════════════════════════════════════════
-        //  ARRIVAL CHECK
-        // ═══════════════════════════════════════════════════════
+        // ─── arrival ──────────────────────────────────────────
         void CheckArrival()
         {
             if (_arrivedShown) return;
-            if (FlatDist(ARCamera.transform.position, _destWorld) <= ArrivalRadius)
+            float dist = FlatDist(ARCamera.transform.position, _destWorld);
+            if (dist <= ArrivalRadius)
             {
                 _arrivedShown = true;
-                ShowArrived(_rm?.CurrentStop);
-                Debug.Log("[PathLine] ARRIVED!");
+                FillArrivedUI(_rm?.CurrentStop);
+                ShowScreen(Screen.Arrived);  // NavigatePanel stays ON, ArrivedPanel shows on top
+                Debug.Log($"[PathLine] ARRIVED! dist={dist:F2}m");
             }
         }
 
-        void UpdateDistanceText()
+        void UpdateDist()
         {
             if (NavDistanceText == null) return;
             float d = FlatDist(ARCamera.transform.position, _destWorld);
             NavDistanceText.text = d > 1f ? $"{d:F1} m away" : "Almost there!";
         }
 
-        // ═══════════════════════════════════════════════════════
-        //  PIN
-        // ═══════════════════════════════════════════════════════
-        void BuildPin()
+        // ─── kill line + pin ──────────────────────────────────
+        void KillLine()
         {
+            _lineActive   = false;
+            _destLocked   = false;
+            _arrivedShown = false;
+            _alpha        = 0f;
+            _lr.enabled   = false;
             DestroyPin();
-            _pinRoot = new GameObject("DestPin");
-
-            var pole = Prim(_pinRoot, PrimitiveType.Cylinder, PinColor);
-            pole.transform.localPosition = new Vector3(0, 0.25f, 0);
-            pole.transform.localScale    = new Vector3(0.04f, 0.25f, 0.04f);
-
-            var ball = Prim(_pinRoot, PrimitiveType.Sphere, PinColor);
-            ball.transform.localPosition = new Vector3(0, 0.55f, 0);
-            ball.transform.localScale    = Vector3.one * 0.15f;
-
-            var disc = Prim(_pinRoot, PrimitiveType.Cylinder, new Color(PinColor.r, PinColor.g, PinColor.b, 0.45f));
-            disc.transform.localPosition = new Vector3(0, 0.003f, 0);
-            disc.transform.localScale    = new Vector3(0.28f, 0.003f, 0.28f);
-
-            var shaft = Prim(_pinRoot, PrimitiveType.Cylinder, PinColor);
-            shaft.transform.localPosition = new Vector3(0, 0.82f, 0);
-            shaft.transform.localScale    = new Vector3(0.03f, 0.1f, 0.03f);
-
-            var head = Prim(_pinRoot, PrimitiveType.Cube, PinColor);
-            head.transform.localPosition = new Vector3(0, 1.0f, 0);
-            head.transform.localScale    = new Vector3(0.12f, 0.12f, 0.12f);
-            head.transform.localRotation = Quaternion.Euler(45f, 45f, 0f);
-
-            _pinRing = Prim(_pinRoot, PrimitiveType.Cylinder, new Color(PinColor.r, PinColor.g, PinColor.b, 0.7f));
-            _pinRing.transform.localPosition = new Vector3(0, 0.005f, 0);
-            _pinRing.transform.localScale    = new Vector3(0.15f, 0.003f, 0.15f);
-
-            _pinRoot.transform.position = _destWorld + Vector3.up * PinHeight;
+            Debug.Log("[PathLine] Line + pin killed");
         }
 
-        void DestroyPin() { if (_pinRoot) { Destroy(_pinRoot); _pinRoot = null; _pinRing = null; } }
+        public void ClearDestination() => KillLine();
+
+        // ─── destination ──────────────────────────────────────
+        void LockDest(float metres)
+        {
+            Vector3 fwd = ARCamera.transform.forward;
+            fwd.y = 0f;
+            if (fwd.sqrMagnitude < 0.001f) fwd = Vector3.forward;
+            fwd.Normalize();
+            float gy   = GroundY();
+            _destWorld = new Vector3(
+                ARCamera.transform.position.x + fwd.x * metres, gy,
+                ARCamera.transform.position.z + fwd.z * metres);
+            _destLocked   = true;
+            _arrivedShown = false;
+            _bobTimer = _ringTimer = 0f;
+            BuildPin();
+            Debug.Log($"[PathLine] Dest locked {metres}m → {_destWorld}");
+        }
+
+        void DrawLine()
+        {
+            float gy  = GroundY() + GroundOffset;
+            Vector3 s = new Vector3(ARCamera.transform.position.x, gy, ARCamera.transform.position.z);
+            Vector3 e = new Vector3(_destWorld.x, gy, _destWorld.z);
+            for (int i = 0; i < PointCount; i++)
+                _lr.SetPosition(i, Vector3.Lerp(s, e, (float)i / (PointCount - 1)));
+        }
+
+        // ─── pin ──────────────────────────────────────────────
+        void BuildPin()
+        {
+           // DestroyPin();
+        /*    _pinRoot = new GameObject("DestPin");
+            Prim(_pinRoot, PrimitiveType.Cylinder, PinColor,                                          new Vector3(0,.25f,0), new Vector3(.04f,.25f,.04f));
+            Prim(_pinRoot, PrimitiveType.Sphere,   PinColor,                                          new Vector3(0,.55f,0), Vector3.one*.15f);
+            Prim(_pinRoot, PrimitiveType.Cylinder, new Color(PinColor.r,PinColor.g,PinColor.b,.45f), new Vector3(0,.003f,0),new Vector3(.28f,.003f,.28f));
+            Prim(_pinRoot, PrimitiveType.Cylinder, PinColor,                                          new Vector3(0,.82f,0), new Vector3(.03f,.1f,.03f));
+            var h = Prim(_pinRoot, PrimitiveType.Cube, PinColor,                                     new Vector3(0,1f,0),   new Vector3(.12f,.12f,.12f));
+            h.transform.localRotation = Quaternion.Euler(45f,45f,0f);
+            _pinRing = Prim(_pinRoot, PrimitiveType.Cylinder,
+                new Color(PinColor.r,PinColor.g,PinColor.b,.7f),
+                new Vector3(0,.005f,0), new Vector3(.15f,.003f,.15f)); */
+            PinObject.transform.position = _destWorld + Vector3.up * PinHeight;
+        }
+
+        void DestroyPin() { if (_pinRoot != null) { Destroy(_pinRoot); _pinRoot = _pinRing = null; } }
 
         void AnimatePin()
         {
-            if (_pinRoot == null) return;
+         //   if (_pinRoot == null) return;
             _bobTimer += Time.deltaTime * 1.4f;
-            _pinRoot.transform.position = _destWorld + Vector3.up * (PinHeight + Mathf.Sin(_bobTimer) * 0.05f);
-
+            PinObject.transform.position = _destWorld + Vector3.up * (PinHeight + Mathf.Sin(_bobTimer) * .05f);
             if (_pinRing != null)
             {
                 _ringTimer += Time.deltaTime;
                 float p = (_ringTimer % 1.3f) / 1.3f;
-                _pinRing.transform.localScale = new Vector3(Mathf.Lerp(0.12f, 0.65f, p), 0.003f, Mathf.Lerp(0.12f, 0.65f, p));
-                var rend = _pinRing.GetComponent<Renderer>();
-                if (rend != null) { var c = rend.material.color; c.a = Mathf.Lerp(0.8f, 0f, p) * _alpha; rend.material.color = c; }
+                float s = Mathf.Lerp(.12f, .65f, p);
+                _pinRing.transform.localScale = new Vector3(s, .003f, s);
+              //  var r = _pinRing.GetComponent<Renderer>();
+              //  if (r != null) { var c = r.material.color; c.a = Mathf.Lerp(.8f,0f,p) * _alpha; r.material.color = c; }
             }
         }
 
-        // ═══════════════════════════════════════════════════════
-        //  CALLED BY ARSessionStabilityManager
-        // ═══════════════════════════════════════════════════════
-        public void ClearDestination()
-        {
-            _destLocked = false;
-            _active     = false;
-            DestroyPin();
-            Debug.Log("[PathLine] Destination cleared — waiting for rescan");
-        }
-
-        // ═══════════════════════════════════════════════════════
-        //  LINE MATERIAL & ANIMATIONS
-        // ═══════════════════════════════════════════════════════
+        // ─── line material ────────────────────────────────────
         void BuildMaterial()
         {
-            if (PathMaterial != null) { _mat = new Material(PathMaterial); }
-            else
-            {
-                var sh = Shader.Find("Unlit/Color") ?? Shader.Find("Sprites/Default");
-                _mat = new Material(sh);
-                _mat.color = Color.magenta;
-                Debug.LogWarning("[PathLine] No PathMaterial — magenta fallback. Create Unlit/Color material.");
-            }
+            if (PathMaterial != null) { _mat = new Material(PathMaterial); return; }
+            var sh = Shader.Find("Unlit/Color") ?? Shader.Find("Sprites/Default");
+            _mat = new Material(sh);
+            _mat.color = Color.magenta;
+            Debug.LogWarning("[PathLine] No PathMaterial — magenta fallback.");
         }
 
-        void SetupLineRenderer()
+        void SetupLR()
         {
             _lr.useWorldSpace     = true;
             _lr.positionCount     = PointCount;
@@ -578,41 +420,23 @@ namespace ARNavigation.Navigation
             _lr.material          = _mat;
             _lr.enabled           = false;
             var wc = new AnimationCurve();
-            wc.AddKey(0f, StartWidth);
-            wc.AddKey(1f, EndWidth);
+            wc.AddKey(0f, StartWidth); wc.AddKey(1f, EndWidth);
             _lr.widthCurve        = wc;
             _mat.mainTextureScale = new Vector2(10f, 1f);
-            _baseStartWidth       = StartWidth;
-            _baseEndWidth         = EndWidth;
         }
 
-        void ApplyAlpha(float a)
+        void AnimateLine()
         {
-            float t       = (_glowTimer > 0f) ? (Mathf.Sin(_glowTimer * GlowBreathSpeed) + 1f) * 0.5f : 1f;
-            float breathA = GlowBreathEnabled ? Mathf.Lerp(GlowBreathMin, GlowBreathMax, t) : 1f;
-            Color mid     = Color.Lerp(LineColor, ColorShiftEnabled ? LineColorHighlight : LineColor, t * 0.5f);
+            _scroll = (_scroll + Time.deltaTime * ScrollSpeed) % 1f;
+            _mat.mainTextureOffset = new Vector2(-_scroll, 0f);
             var g = new Gradient();
             g.SetKeys(
-                new[] { new GradientColorKey(mid, 0f),         new GradientColorKey(LineColor, 1f) },
-                new[] { new GradientAlphaKey(a * breathA, 0f), new GradientAlphaKey(a * breathA * 0.08f, 1f) });
+                new[] { new GradientColorKey(LineColor, 0f), new GradientColorKey(LineColor, 1f) },
+                new[] { new GradientAlphaKey(_alpha, 0f),    new GradientAlphaKey(_alpha * .08f, 1f) });
             _lr.colorGradient = g;
         }
 
-        void AnimateLineEffects()
-        {
-            _glowTimer += Time.deltaTime;
-            if (!WidthPulseEnabled) return;
-            float t   = (Mathf.Sin(_glowTimer * GlowBreathSpeed) + 1f) * 0.5f;
-            float p   = Mathf.Lerp(-WidthPulseAmount, WidthPulseAmount, t);
-            var wc    = new AnimationCurve();
-            wc.AddKey(0f, _baseStartWidth + p);
-            wc.AddKey(1f, _baseEndWidth   + p * 0.5f);
-            _lr.widthCurve = wc;
-        }
-
-        // ═══════════════════════════════════════════════════════
-        //  UTILITY
-        // ═══════════════════════════════════════════════════════
+        // ─── utilities ────────────────────────────────────────
         float GroundY()
         {
             if (Physics.Raycast(ARCamera.transform.position, Vector3.down, out RaycastHit hit, 10f))
@@ -621,24 +445,15 @@ namespace ARNavigation.Navigation
         }
 
         float FlatDist(Vector3 a, Vector3 b) =>
-            Vector3.Distance(new Vector3(a.x, 0, a.z), new Vector3(b.x, 0, b.z));
+            Vector3.Distance(new Vector3(a.x,0,a.z), new Vector3(b.x,0,b.z));
 
-        void ShowOnly(GameObject target)
-        {
-            Show(HomePanel,     target == HomePanel);
-            Show(ScanPanel,     target == ScanPanel);
-            Show(NavigatePanel, target == NavigatePanel);
-            Show(ArrivedPanel,  false);
-            Show(CompletePanel, target == CompletePanel);
-        }
-
-        static void Show(GameObject go, bool v) { if (go != null) go.SetActive(v); }
-
-        GameObject Prim(GameObject parent, PrimitiveType type, Color color)
+        GameObject Prim(GameObject parent, PrimitiveType type, Color col, Vector3 pos, Vector3 scale)
         {
             var go = GameObject.CreatePrimitive(type);
             go.transform.SetParent(parent.transform, false);
-            var col = go.GetComponent<Collider>(); if (col) Destroy(col);
+            go.transform.localPosition = pos;
+            go.transform.localScale    = scale;
+            var c = go.GetComponent<Collider>(); if (c) Destroy(c);
             var mat = new Material(Shader.Find("Standard"));
             mat.SetFloat("_Mode",    3);
             mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
@@ -648,7 +463,7 @@ namespace ARNavigation.Navigation
             mat.EnableKeyword("_ALPHABLEND_ON");
             mat.DisableKeyword("_ALPHAPREMULTIPLY_ON");
             mat.renderQueue = 3000;
-            mat.color       = color;
+            mat.color       = col;
             go.GetComponent<Renderer>().material = mat;
             return go;
         }
