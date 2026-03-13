@@ -73,6 +73,16 @@ namespace ARNavigation.Navigation
         [Range(0f, 3f)]
         public float ScrollSpeed  = 0.7f;
 
+        [Header("Line Animations")]
+        public bool  GlowBreathEnabled  = true;
+        [Range(0f,1f)] public float GlowBreathMin   = 0.35f;
+        [Range(0f,1f)] public float GlowBreathMax   = 1.0f;
+        public float GlowBreathSpeed    = 1.6f;
+        public bool  WidthPulseEnabled  = true;
+        [Range(0f,0.05f)] public float WidthPulseAmount = 0.025f;
+        public bool  ColorShiftEnabled  = true;
+        public Color LineColorHighlight = new Color(0.2f, 0.6f, 1f, 0.9f);
+
         // ─── PIN ─────────────────────────────────────────────────────────────────
         [Header("Destination Pin")]
         public Color PinColor     = new Color(0f, 0.95f, 0.8f, 1f);
@@ -94,6 +104,9 @@ namespace ARNavigation.Navigation
         float      _bobTimer;
         float      _ringTimer;
         float      _logTimer;
+        float      _glowTimer;
+        float      _baseStartWidth;
+        float      _baseEndWidth;
 
         GameObject _pinRoot;
         GameObject _pinRing;
@@ -169,6 +182,7 @@ namespace ARNavigation.Navigation
             _scroll = (_scroll + Time.deltaTime * ScrollSpeed) % 1f;
             _mat.mainTextureOffset = new Vector2(-_scroll, 0f);
             ApplyAlpha(_alpha);
+            AnimateLineEffects();
 
             // ── Animate pin ───────────────────────────────────────────────────────
             AnimatePin();
@@ -421,16 +435,45 @@ namespace ARNavigation.Navigation
             wc.AddKey(1f, EndWidth);
             _lr.widthCurve            = wc;
             _mat.mainTextureScale     = new Vector2(10f, 1f);
+
+            // Save base widths for pulse animation
+            _baseStartWidth = StartWidth;
+            _baseEndWidth   = EndWidth;
         }
 
         void ApplyAlpha(float a)
         {
+            float t         = (_glowTimer > 0f) ? (Mathf.Sin(_glowTimer * GlowBreathSpeed) + 1f) * 0.5f : 1f;
+            float breathA   = GlowBreathEnabled ? Mathf.Lerp(GlowBreathMin, GlowBreathMax, t) : 1f;
+            float finalA    = a * breathA;
+
+            // Color shift between LineColor and highlight
+            Color fromColor = LineColor;
+            Color toColor   = ColorShiftEnabled ? LineColorHighlight : LineColor;
+            Color midColor  = Color.Lerp(fromColor, toColor, t * 0.5f);
+
             var g = new Gradient();
             g.SetKeys(
-                new[] { new GradientColorKey(LineColor, 0f), new GradientColorKey(LineColor, 1f) },
-                new[] { new GradientAlphaKey(a, 0f), new GradientAlphaKey(a * 0.08f, 1f) }
+                new[] { new GradientColorKey(midColor, 0f), new GradientColorKey(fromColor, 1f) },
+                new[] { new GradientAlphaKey(finalA, 0f), new GradientAlphaKey(finalA * 0.08f, 1f) }
             );
             _lr.colorGradient = g;
+        }
+
+        void AnimateLineEffects()
+        {
+            _glowTimer += Time.deltaTime;
+
+            if (!WidthPulseEnabled) return;
+
+            // Width pulses in sync with glow breath
+            float t      = (Mathf.Sin(_glowTimer * GlowBreathSpeed) + 1f) * 0.5f;
+            float pulse  = Mathf.Lerp(-WidthPulseAmount, WidthPulseAmount, t);
+
+            var wc = new AnimationCurve();
+            wc.AddKey(0f, _baseStartWidth + pulse);
+            wc.AddKey(1f, _baseEndWidth   + pulse * 0.5f);
+            _lr.widthCurve = wc;
         }
 
         // ─────────────────────────────────────────────────────────────────────────
@@ -456,7 +499,6 @@ namespace ARNavigation.Navigation
                     break;
             }
         }
-
             // called by ARSessionStabilityManager after a full AR reset
     public void ClearDestination()
     {

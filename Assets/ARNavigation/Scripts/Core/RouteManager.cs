@@ -84,7 +84,8 @@ namespace ARNavigation.Core
         }
 
         void Log(string msg) { if (VerboseLogging) Debug.Log($"[RouteManager] {msg}"); }
-           // Called by ARSessionStabilityManager after full AR reset
+
+         // Called by ARSessionStabilityManager after full AR reset
         public void RequireRescan()
         {
             if (CurrentState == NavState.Navigating)
@@ -96,4 +97,3 @@ namespace ARNavigation.Core
     }
 }
 
-     
