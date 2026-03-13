@@ -65,13 +65,6 @@ namespace ARNavigation.ImageTracking
             if (RouteManager.Instance != null)
                 RouteManager.Instance.OnStateChanged += OnNavStateChanged;
         }
-        public void OnStartButton()
-        {
-//             _imageManager.trackedImagesChanged += OnTrackedImagesChanged;
-
-        //    if (RouteManager.Instance != null)
-          //      RouteManager.Instance.OnStateChanged += OnNavStateChanged;
-        }
         void OnDisable()
         {
             _imageManager.trackedImagesChanged -= OnTrackedImagesChanged;

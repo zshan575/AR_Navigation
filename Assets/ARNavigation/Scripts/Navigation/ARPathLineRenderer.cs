@@ -96,6 +96,7 @@ namespace ARNavigation.Navigation
             _lr = GetComponent<LineRenderer>();
             BuildMaterial();
             SetupLR();
+            SetupLRw();
         }
 
         void Start()
@@ -147,6 +148,7 @@ namespace ARNavigation.Navigation
             }
 
             AnimateLine();
+            AnimateLine2();
             AnimatePin();
 
             if (VerboseLogging)
@@ -170,6 +172,7 @@ namespace ARNavigation.Navigation
             if (HomePanel     != null) HomePanel.SetActive(s == Screen.Home);
             if (ScanPanel     != null) ScanPanel.SetActive(s == Screen.Scan);
             if (NavigatePanel != null) NavigatePanel.SetActive(s == Screen.Navigate);
+              if (NavigatePanel != null) NavigatePanel.SetActive(s == Screen.Arrived);
             if (ArrivedPanel  != null) ArrivedPanel.SetActive(s == Screen.Arrived);
             if (CompletePanel != null) CompletePanel.SetActive(s == Screen.Complete);
             Debug.Log($"[PathLine] ShowScreen({s}) → " +
@@ -222,7 +225,7 @@ namespace ARNavigation.Navigation
             _lineActive = true;
             FillNavigateUI(stop);
             ShowScreen(Screen.Navigate);  // ← ScanPanel turns OFF here
-            ScanPanel.SetActive(false);
+           // ScanPanel.SetActive(false);
             NavigatePanel.SetActive(true);
         }
 
@@ -273,11 +276,12 @@ namespace ARNavigation.Navigation
         // ─── buttons ──────────────────────────────────────────
         void OnStartPressed()
         {
-            Debug.Log("[PathLine] Start pressed");
-            FillHomeUI();
-            ARImageTracker.Instance.OnStartButton();
-            ScanPanel.SetActive(true); 
+              Debug.Log("[PathLine] Start pressed");
+            // StartNavigation sets CurrentStepIndex = 0 first
             _rm?.StartNavigation();
+            // NOW fill and show scan (index is ready)
+            FillScanUI();
+            ShowScreen(Screen.Scan);
             // → RouteManager fires WaitingForImage → OnState → ShowScreen(Scan)
         }
 
@@ -292,6 +296,7 @@ namespace ARNavigation.Navigation
             // If more stops  → WaitingForImage → ShowScreen(Scan)
             // If last stop   → RouteComplete   → ShowScreen(Complete)
             _rm?.ConfirmArrival();
+            //_rm?.CompleteRoute();
         }
 
         void OnRestartPressed()
@@ -364,10 +369,21 @@ namespace ARNavigation.Navigation
             for (int i = 0; i < PointCount; i++)
                 _lr.SetPosition(i, Vector3.Lerp(s, e, (float)i / (PointCount - 1)));
         }
+void AnimateLine()
+{
+    _scroll = (_scroll + Time.deltaTime * ScrollSpeed) % 1f;
+    _mat.mainTextureOffset = new Vector2(-_scroll, 0f); // scroll along X
 
+    var g = new Gradient();
+    g.SetKeys(
+        new[] { new GradientColorKey(LineColor, 0f), new GradientColorKey(LineColor, 1f) },
+        new[] { new GradientAlphaKey(_alpha, 0f),    new GradientAlphaKey(_alpha * .08f, 1f) });
+    _lr.colorGradient = g;
+}
         // ─── pin ──────────────────────────────────────────────
         void BuildPin()
         {
+            PinObject.SetActive(true);
            // DestroyPin();
         /*    _pinRoot = new GameObject("DestPin");
             Prim(_pinRoot, PrimitiveType.Cylinder, PinColor,                                          new Vector3(0,.25f,0), new Vector3(.04f,.25f,.04f));
@@ -424,8 +440,40 @@ namespace ARNavigation.Navigation
             _lr.widthCurve        = wc;
             _mat.mainTextureScale = new Vector2(10f, 1f);
         }
+void SetupLRw()
+{
+    _lr.useWorldSpace     = true;
+    _lr.positionCount     = PointCount;
+    _lr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+    _lr.receiveShadows    = false;
+    _lr.textureMode       = LineTextureMode.Tile;
 
-        void AnimateLine()
+    // Use arrow material if provided
+    if (PathMaterial != null)
+    {
+        _mat = new Material(PathMaterial);
+    }
+    else
+    {
+        var sh = Shader.Find("Unlit/Transparent") ?? Shader.Find("Sprites/Default");
+        _mat = new Material(sh);
+        _mat.color = LineColor;
+    }
+
+    _lr.material = _mat;
+    _lr.enabled = false;
+
+    // Line width curve
+    var wc = new AnimationCurve();
+    wc.AddKey(0f, StartWidth);
+    wc.AddKey(1f, EndWidth);
+    _lr.widthCurve = wc;
+
+    // Texture repeat along line — adjust for number of points
+    float repeat = Mathf.Max(PointCount * 0.5f, 1f);
+    _mat.mainTextureScale = new Vector2(repeat, 1f);
+}
+        void AnimateLine2()
         {
             _scroll = (_scroll + Time.deltaTime * ScrollSpeed) % 1f;
             _mat.mainTextureOffset = new Vector2(-_scroll, 0f);

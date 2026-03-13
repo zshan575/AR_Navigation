@@ -60,12 +60,15 @@ namespace ARNavigation.Core
         public void ConfirmArrival()
         {
             if (CurrentState != NavState.Navigating) return;
-            TransitionTo(NavState.Arrived);
             CurrentStepIndex++;
             if (CurrentStepIndex >= TotalSteps)
                 TransitionTo(NavState.RouteComplete);
-            else
-                TransitionTo(NavState.WaitingForImage);
+        //    else
+         //       TransitionTo(NavState.WaitingForImage);
+        }
+public void CompleteRoute()
+        {
+             TransitionTo(NavState.RouteComplete);
         }
 
         public void ResetRoute()
