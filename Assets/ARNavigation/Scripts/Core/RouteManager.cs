@@ -4,16 +4,11 @@ using ARNavigation.Data;
 
 namespace ARNavigation.Core
 {
-    /// <summary>
-    /// Central singleton owning route data and navigation state.
-    /// Recognition is now driven by AR Foundation Image Tracking — no QR/ZXing needed.
-    /// </summary>
     public class RouteManager : MonoBehaviour
     {
         public static RouteManager Instance { get; private set; }
 
         [Header("Route Data")]
-        [Tooltip("Define stops in order. Each stop's ImageName must match an entry in the XR Reference Image Library.")]
         public NavigationRoute Route = new NavigationRoute();
 
         [Header("Debug")]
@@ -45,7 +40,6 @@ namespace ARNavigation.Core
             TransitionTo(NavState.WaitingForImage);
         }
 
-        /// <summary>Called by ARImageTracker when ARCore recognises a tracked image.</summary>
         public void OnImageRecognised(string imageName)
         {
             if (CurrentState != NavState.WaitingForImage) return;
@@ -57,17 +51,21 @@ namespace ARNavigation.Core
             }
             else
             {
-                Log($"Image mismatch. Saw '{imageName}', expected '{expected.ImageName}'");
+                Log($"Wrong image. Saw '{imageName}', expected '{expected.ImageName}'");
                 OnWrongImageDetected?.Invoke(imageName);
             }
         }
 
+        // Called when user taps "Next Location" on arrived panel
         public void ConfirmArrival()
         {
             if (CurrentState != NavState.Navigating) return;
             TransitionTo(NavState.Arrived);
             CurrentStepIndex++;
-            TransitionTo(CurrentStepIndex >= TotalSteps ? NavState.RouteComplete : NavState.WaitingForImage);
+            if (CurrentStepIndex >= TotalSteps)
+                TransitionTo(NavState.RouteComplete);
+            else
+                TransitionTo(NavState.WaitingForImage);
         }
 
         public void ResetRoute()
@@ -76,7 +74,17 @@ namespace ARNavigation.Core
             TransitionTo(NavState.Idle);
         }
 
-        void TransitionTo(NavState s)
+        // Called by ARSessionStabilityManager after full AR reset
+        public void RequireRescan()
+        {
+            if (CurrentState == NavState.Navigating)
+            {
+                Log("RequireRescan — returning to WaitingForImage");
+                TransitionTo(NavState.WaitingForImage);
+            }
+        }
+
+        public void TransitionTo(NavState s)
         {
             CurrentState = s;
             Log($"State -> {s}  (step {CurrentStepIndex}/{TotalSteps})");
@@ -84,16 +92,5 @@ namespace ARNavigation.Core
         }
 
         void Log(string msg) { if (VerboseLogging) Debug.Log($"[RouteManager] {msg}"); }
-
-         // Called by ARSessionStabilityManager after full AR reset
-        public void RequireRescan()
-        {
-            if (CurrentState == NavState.Navigating)
-            {
-                Log("RequireRescan called — returning to WaitingForImage");
-                TransitionTo(NavState.WaitingForImage);
-            }
-        }
     }
 }
-
